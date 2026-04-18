@@ -1,0 +1,65 @@
+(* File: lexer.mml *)
+{
+#use "token.ml";;
+}
+
+let digit = ['0'-'9']
+let digits = digit+
+let dec = digits '.' digits
+let alpha = (['a'-'z']|['A'-'Z'])+
+
+rule lexer prevtok = parse
+     | dec|((dec|digits) ('e'|'E') '-'? digits) as f
+       { (Float_tok (float_of_string f))::(lexer Val_tok lexbuf) }
+     | digits as d { (Int_tok (int_of_string d))::(lexer Val_tok lexbuf) }
+     | "(*" { let () = commentlex lexbuf in lexer prevtok lexbuf }
+     | "*)" { raise IgnoreCase }
+     | "if" { If_tok::(lexer prevtok lexbuf) }
+     | "else" { Else_tok::(lexer prevtok lexbuf) }
+     | "True" { (Bool_tok true)::(lexer Val_tok lexbuf) }
+     | "False" { (Bool_tok false)::(lexer Val_tok lexbuf) }
+     | "and" { And_tok::(lexer Op_tok lexbuf) }
+     | "or" { Or_tok::(lexer Op_tok lexbuf) }
+     | "not" { Not_tok::(lexer Op_tok lexbuf) }
+     | alpha (digits|alpha|'_')* as i { (Id_tok i)::(lexer Val_tok lexbuf)}
+     | '+' { match prevtok with
+       | Val_tok -> Plus_tok::(lexer Op_tok lexbuf)
+       | Op_tok -> lexer Op_tok lexbuf }
+     | '-' { match prevtok with
+       | Val_tok -> Minus_tok::(lexer Op_tok lexbuf)
+       | Op_tok -> Neg_tok::(lexer Op_tok lexbuf) }
+     | "**" { Exp_tok::(lexer Op_tok lexbuf) }
+     | '*' { Mult_tok::(lexer Op_tok lexbuf) }
+     | '/' { Div_tok::(lexer Op_tok lexbuf) }
+     | '%' { Mod_tok::(lexer Op_tok lexbuf) }
+     | "==" { Is_Equ_tok::(lexer Op_tok lexbuf) }
+     | "!=" { Is_Neq_tok::(lexer Op_tok lexbuf) }
+     | "<=" { Is_Leq_tok::(lexer Op_tok lexbuf) }
+     | ">=" { Is_Geq_tok::(lexer Op_tok lexbuf) }
+     | '<' { Is_Lt_tok::(lexer Op_tok lexbuf) }
+     | '>' { Is_Gt_tok::(lexer Op_tok lexbuf) }
+     | '=' { Equ_tok::(lexer Op_tok lexbuf) }
+     | '(' { Lparen_tok::(lexer Op_tok lexbuf) }
+     | ')' { Rparen_tok::(lexer Val_tok lexbuf) }
+     | eof { [] }
+     | _ { lexer prevtok lexbuf }
+
+and commentlex = parse
+     | "(*" { let () = commentlex lexbuf in commentlex lexbuf }
+     | "*)" { () }
+     | eof { raise IgnoreCase }
+     | _ { commentlex lexbuf }
+
+and indentlex count = parse
+     | ' ' { indentlex (count + 1) lexbuf }
+     | '\t' { indentlex ((count / 4 + 1) * 4) lexbuf }
+     | eof { Indent_tok 0 }
+     | _ { Indent_tok count }
+     
+{
+let tokenize s =
+    let buffer1 = Lexing.from_string s in
+    let buffer2 = Lexing.from_string s in
+    let indent = indentlex 0 buffer1 in
+    indent::(lexer Op_tok buffer2);;
+}
