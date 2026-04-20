@@ -26,6 +26,9 @@ type expr = Equ of (expr * expr)
           | Int of int
           | Bool of bool
           | Float of float
+and
+  statement = Statement of (string * expr)
+            | Expr of expr
 ;;
 
 let vartbl : (string, expr) Hashtbl.t = Hashtbl.create 10;;
@@ -145,6 +148,12 @@ atom toks =
         end
     | Neg_tok::rt -> let t, rtoks = atom rt in Neg t, rtoks
     | _ -> raise BadToks
+;;
+
+let make_statement toks = match toks with
+  | (Id_tok v)::Equ_tok::rt -> let ptree, rt = bool1 rt in
+    Statement (v, ptree)
+  | _ -> let ptree, rt = bool1 toks in Expr ptree
 ;;
 
 let rec print_parsetree tree ind =
@@ -417,6 +426,11 @@ let rec executeTree t = match t with
   | _ -> t
 ;;
 
+let executeStatement s = match s with
+  | Statement (v, x) -> Hashtbl.replace vartbl v (executeTree x)
+  | Expr x -> print_parsetree (executeTree x) 0
+;;
+  
 let rec main () =
   let () = print_string ">>> " in
   let s = read_line () in
@@ -425,18 +439,11 @@ let rec main () =
     let toks = tokenize s in
     (* let () = print_tokens toks in *)
     match toks with
-      | (Indent_tok x)::t when x = 0 -> begin match t with
-          | (Id_tok v)::Equ_tok::rt -> let ptree, rt = bool1 rt in
-              let () = Hashtbl.replace vartbl v (executeTree ptree)
-            in
-            main ()
-          | [] -> main ()
-          | _ -> let ptree, rt = bool1 t in
-            (* let () = print_parsetree ptree 0 in *)
-            let () = print_parsetree (executeTree ptree) 0 in
-            main ()
-          end
-      | _ -> print_string "Indentation Error\n"
+    | (Indent_tok x)::[] -> main ()
+    | (Indent_tok x)::t when x = 0 ->
+      let () = executeStatement (make_statement t) in
+      main ()
+    | _ -> let () = print_string "Indentation Error\n" in main ()
 ;;
 
 main ();;
