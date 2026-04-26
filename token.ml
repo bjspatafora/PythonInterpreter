@@ -27,6 +27,7 @@ type token = Int_tok of int
            | Not_tok
            | If_tok
            | Else_tok
+           | Colon_tok
            | Lparen_tok
            | Rparen_tok
            | Lcomment_tok

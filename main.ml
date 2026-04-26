@@ -26,6 +26,9 @@ type expr = Equ of (expr * expr)
           | Int of int
           | Bool of bool
           | Float of float
+          | Id of string
+          | If of (expr * (statement list) * (statement list))
+          | Empty
 and
   statement = Statement of (string * expr)
             | Expr of expr
@@ -33,132 +36,23 @@ and
 
 let vartbl : (string, expr) Hashtbl.t = Hashtbl.create 10;;
 
-let rec bool1 toks =
-  let rec bool1loop toks acc =
-    (* let () = print_string "Bool1: " in
-       let () = print_tokens toks in
-       let () = print_newline () in *)
-    match toks with
-    | Or_tok::rt -> let rtree, rtoks = bool2 rt in
-      bool1loop rtoks (Or (acc, rtree))
-    | _ -> acc, toks
-  in
-  let ltree, rtoks = bool2 toks in
-  bool1loop rtoks ltree
-and
-  bool2 toks =
-  let rec bool2loop toks acc =
-    (* let () = print_string "Bool2: " in
-       let () = print_tokens toks in
-       let () = print_newline () in *)
-    match toks with
-    | And_tok::rt -> let rtree, rtoks = bool3 rt in
-      bool2loop rtoks (And (acc, rtree))
-    | _ -> acc, toks
-  in
-  let ltree, rtoks = bool3 toks in
-  bool2loop rtoks ltree
-and
-  bool3 toks =
-  (* let () = print_string "Bool4: " in
-       let () = print_tokens toks in
-       let () = print_newline () in *)
-  match toks with
-  | Not_tok::rt -> let t, rtoks = bool3 rt in Not t, rtoks
-  | _ -> bool4 toks
-and
-  bool4 toks =
-  let rec bool4loop toks acc =
-    (* let () = print_string "Bool4: " in
-    let () = print_tokens toks in
-    let () = print_newline () in *)
-    match toks with
-    | Is_Equ_tok::rt -> let rtree, rtoks = arith1 rt in
-      bool4loop rtoks (Equ (acc, rtree))
-    | Is_Neq_tok::rt -> let rtree, rtoks = arith1 rt in
-      bool4loop rtoks (Neq (acc, rtree))
-    | Is_Geq_tok::rt -> let rtree, rtoks = arith1 rt in
-      bool4loop rtoks (Geq (acc, rtree))
-    | Is_Gt_tok::rt -> let rtree, rtoks = arith1 rt in
-      bool4loop rtoks (Gt (acc, rtree))
-    | Is_Leq_tok::rt -> let rtree, rtoks = arith1 rt in
-      bool4loop rtoks (Leq (acc, rtree))
-    | Is_Lt_tok::rt -> let rtree, rtoks = arith1 rt in
-      bool4loop rtoks (Lt (acc, rtree))
-    | _ -> acc, toks
-  in
-  let ltree, rtoks = arith1 toks in
-  bool4loop rtoks ltree
-and
-  arith1 toks =
-  let rec arith1loop toks acc =
-    (* let () = print_string "Arith1: " in
-    let () = print_tokens toks in
-    let () = print_newline () in *)
-    match toks with
-    | Plus_tok::rt -> let rtree, rtoks = arith2 rt in
-      arith1loop rtoks (Plus (acc, rtree))
-    | Minus_tok::rt -> let rtree, rtoks = arith2 rt in
-      arith1loop rtoks (Minus (acc, rtree))
-    | _ -> acc, toks
-  in
-  let ltree, rtoks = arith2 toks in
-  arith1loop rtoks ltree
-and
-arith2 toks =
-  let rec arith2loop toks acc =
-    (* let () = print_string "Arith2: " in
-    let () = print_tokens toks in
-    let () = print_newline () in *)
-    match toks with
-    | Mult_tok::rt -> let rtree, rtoks = arith3 rt in
-        arith2loop rtoks (Mult (acc, rtree))
-    | Div_tok::rt -> let rtree, rtoks = arith3 rt in
-        arith2loop rtoks (Div (acc, rtree))
-    | Mod_tok::rt -> let rtree, rtoks = arith3 rt in
-        arith2loop rtoks (Mod (acc, rtree))
-    | _ -> acc, toks
-  in
-  let ltree, rtoks = arith3 toks in
-  arith2loop rtoks ltree
-and
-arith3 toks =
-  (* let () = print_string "Arith3: " in
-  let () = print_tokens toks in
-  let () = print_newline () in *)
-  let ltree, rtoks = atom toks in
-  match rtoks with
-    | Exp_tok::rt -> let rtree, rtoks = arith3 rt in
-        Exp (ltree, rtree), rtoks
-    | _ -> ltree, rtoks
-and
-atom toks =
-  (* let () = print_string "Atom: " in
-  let () = print_tokens toks in
-  let () = print_newline () in *)
-  match toks with
-    | (Id_tok x)::rt -> (Hashtbl.find vartbl x), rt
-    | (Int_tok x)::rt -> Int x, rt
-    | (Bool_tok x)::rt -> Bool x, rt
-    | (Float_tok x)::rt -> Float x, rt
-    | Lparen_tok::rt -> let t, rtoks = bool1 rt in
-        begin match rtoks with
-          | Rparen_tok::rt -> Paren t, rt
-          | _ -> raise UnmatchedParen
-        end
-    | Neg_tok::rt -> let t, rtoks = atom rt in Neg t, rtoks
-    | _ -> raise BadToks
-;;
-
-let make_statement toks = match toks with
-  | (Id_tok v)::Equ_tok::rt -> let ptree, rt = bool1 rt in
-    Statement (v, ptree)
-  | _ -> let ptree, rt = bool1 toks in Expr ptree
+let rec input () =
+  let () = print_string ">>> " in
+  let s = read_line () in
+  if s = "exit()" then raise Exit
+  else tokenize s
 ;;
 
 let rec print_parsetree tree ind =
   let indent = String.make (ind * 4) ' ' in
   match tree with
+  | If (cond, exp, el) -> let () = Printf.printf "%sIf(\n" indent in
+    let () = print_parsetree cond (ind + 1) in
+    let () = Printf.printf "%sthen\n" indent in
+    let () = print_statements exp (ind + 1) in
+    let () = Printf.printf "%selse\n" indent in
+    let () = print_statements el (ind + 1) in
+    Printf.printf "%s)\n" indent
   | Or (lt, rt) -> let () = Printf.printf "%sOr(\n" indent in
     let () = print_parsetree lt (ind + 1) in
     let () = Printf.printf "%s,\n" (String.make ((ind + 1) * 4) ' ') in
@@ -241,9 +135,28 @@ let rec print_parsetree tree ind =
   | Int t -> Printf.printf "%s%d\n" indent t
   | Bool t -> Printf.printf "%s%B\n" indent t
   | Float t -> Printf.printf "%s%f\n" indent t
+  | Id t -> Printf.printf "%s%s\n" indent t
+  | _ -> ()
+and
+  print_statement s ind = match s with
+  | Statement (v, e) -> let indent = String.make (ind * 4) ' ' in
+    let () = Printf.printf "%s%s=(\n" indent v in
+    let () = print_parsetree e (ind + 1) in
+    Printf.printf "%s)\n" indent
+  | Expr e -> print_parsetree e ind
+and
+  print_statements xs ind = match xs with
+  | [] -> ()
+  | x::xs -> let () = print_statement x ind in print_statements xs ind
 ;;
 
 let rec executeTree t = match t with
+  | If (cond, exp, el) -> begin match executeTree cond with
+      | Int x when x = 0 -> let () = executeStatements el in Empty
+      | Float x when x = 0. -> let () = executeStatements el in Empty
+      | Bool false -> let () = executeStatements el in Empty
+      | _ -> let () = executeStatements exp in Empty
+    end
   | Or (lt, rt) -> begin match executeTree lt with
       | Int x when x <> 0 -> Bool true
       | Float x when x <> 0. -> Bool true
@@ -423,27 +336,198 @@ let rec executeTree t = match t with
       | _ -> raise NotImplemented
     end
   | Paren t -> executeTree t
+  | Id t -> Hashtbl.find vartbl t
   | _ -> t
-;;
-
-let executeStatement s = match s with
+and
+  executeStatement s = match s with
   | Statement (v, x) -> Hashtbl.replace vartbl v (executeTree x)
   | Expr x -> print_parsetree (executeTree x) 0
+and
+  executeStatements xs = match xs with
+  | [] -> ()
+  | x::xs -> let () = executeStatement x in executeStatements xs
 ;;
-  
-let rec main () =
-  let () = print_string ">>> " in
-  let s = read_line () in
-  if s = "exit()" then ()
-  else
-    let toks = tokenize s in
-    (* let () = print_tokens toks in *)
+
+let rec block toks : (statement * token list) =
+  let rec ifloop cb eb els : (statement list * statement list * statement) =
+    let toks = input () in
     match toks with
-    | (Indent_tok x)::[] -> main ()
-    | (Indent_tok x)::t when x = 0 ->
-      let () = executeStatement (make_statement t) in
-      main ()
-    | _ -> let () = print_string "Indentation Error\n" in main ()
+    | (Indent_tok x)::[] -> ifloop cb eb els
+    | (Indent_tok x)::rt when x = 4 -> let b, rt = block rt in
+      begin match (rt, els) with
+        | ([], 0) -> ifloop (cb @ [b]) eb els
+        | ([], 1) -> ifloop cb (eb @ [b]) els
+        | (_, _) -> let () = print_string "Invalid Input\n" in
+          ifloop cb eb els
+      end
+    | (Indent_tok x)::Else_tok::Colon_tok::[] when x = 0 -> if els = 1
+      then raise BadToks
+      else ifloop cb eb 1
+    | (Indent_tok x)::Else_tok::Colon_tok::rt when x = 0 -> if els = 1
+      then raise BadToks
+      else let exp, rt = statement rt in
+        begin match rt with
+          | [] -> cb, [exp], Expr Empty
+          | _ -> let () = print_string "Invalid Input\n" in ifloop cb eb els
+        end
+    | (Indent_tok x)::rt when x = 0 -> let b, rt = block rt in
+      begin match rt with
+        | [] -> cb, eb, b
+        | _ -> let () = print_string "Invalid Input\n" in ifloop cb eb els
+      end
+    | _ -> raise BadToks
+  in
+  match toks with
+  | If_tok::rt -> let cond, rtoks = bool1 rt in
+    begin match rtoks with
+      | Colon_tok::[] -> let iblock, eblock, ne = ifloop [] [] 0 in
+        let () = executeStatement (Expr (If (cond, iblock, eblock))) in
+        ne, []
+      | Colon_tok::rt -> let exp, rt = statement rt in
+        begin match rt with
+          | [] -> let iblock, eblock, ne = ifloop [exp] [] 2 in
+            let () = executeStatement (Expr (If (cond, iblock, eblock))) in
+            ne, rt
+          | _ -> raise BadToks
+        end
+      | _ -> raise BadToks
+    end
+  | _ -> let s, rt = statement toks in s, rt
+and
+  statement toks : (statement * token list) = match toks with
+  | (Id_tok v)::Equ_tok::rt -> let exp, rt = bool1 rt in
+    Statement (v, exp), rt
+  | _ -> let exp, rt = bool1 toks in Expr exp, rt
+and
+  bool1 toks =
+  let rec bool1loop toks acc =
+    (* let () = print_string "Bool1: " in
+       let () = print_tokens toks in
+       let () = print_newline () in *)
+    match toks with
+    | Or_tok::rt -> let rtree, rtoks = bool2 rt in
+      bool1loop rtoks (Or (acc, rtree))
+    | _ -> acc, toks
+  in
+  let ltree, rtoks = bool2 toks in
+  bool1loop rtoks ltree
+and
+  bool2 toks =
+  let rec bool2loop toks acc =
+    (* let () = print_string "Bool2: " in
+       let () = print_tokens toks in
+       let () = print_newline () in *)
+    match toks with
+    | And_tok::rt -> let rtree, rtoks = bool3 rt in
+      bool2loop rtoks (And (acc, rtree))
+    | _ -> acc, toks
+  in
+  let ltree, rtoks = bool3 toks in
+  bool2loop rtoks ltree
+and
+  bool3 toks =
+  (* let () = print_string "Bool4: " in
+       let () = print_tokens toks in
+       let () = print_newline () in *)
+  match toks with
+  | Not_tok::rt -> let t, rtoks = bool3 rt in Not t, rtoks
+  | _ -> bool4 toks
+and
+  bool4 toks =
+  let rec bool4loop toks acc =
+    (* let () = print_string "Bool4: " in
+    let () = print_tokens toks in
+    let () = print_newline () in *)
+    match toks with
+    | Is_Equ_tok::rt -> let rtree, rtoks = arith1 rt in
+      bool4loop rtoks (Equ (acc, rtree))
+    | Is_Neq_tok::rt -> let rtree, rtoks = arith1 rt in
+      bool4loop rtoks (Neq (acc, rtree))
+    | Is_Geq_tok::rt -> let rtree, rtoks = arith1 rt in
+      bool4loop rtoks (Geq (acc, rtree))
+    | Is_Gt_tok::rt -> let rtree, rtoks = arith1 rt in
+      bool4loop rtoks (Gt (acc, rtree))
+    | Is_Leq_tok::rt -> let rtree, rtoks = arith1 rt in
+      bool4loop rtoks (Leq (acc, rtree))
+    | Is_Lt_tok::rt -> let rtree, rtoks = arith1 rt in
+      bool4loop rtoks (Lt (acc, rtree))
+    | _ -> acc, toks
+  in
+  let ltree, rtoks = arith1 toks in
+  bool4loop rtoks ltree
+and
+  arith1 toks =
+  let rec arith1loop toks acc =
+    (* let () = print_string "Arith1: " in
+    let () = print_tokens toks in
+    let () = print_newline () in *)
+    match toks with
+    | Plus_tok::rt -> let rtree, rtoks = arith2 rt in
+      arith1loop rtoks (Plus (acc, rtree))
+    | Minus_tok::rt -> let rtree, rtoks = arith2 rt in
+      arith1loop rtoks (Minus (acc, rtree))
+    | _ -> acc, toks
+  in
+  let ltree, rtoks = arith2 toks in
+  arith1loop rtoks ltree
+and
+arith2 toks =
+  let rec arith2loop toks acc =
+    (* let () = print_string "Arith2: " in
+    let () = print_tokens toks in
+    let () = print_newline () in *)
+    match toks with
+    | Mult_tok::rt -> let rtree, rtoks = arith3 rt in
+        arith2loop rtoks (Mult (acc, rtree))
+    | Div_tok::rt -> let rtree, rtoks = arith3 rt in
+        arith2loop rtoks (Div (acc, rtree))
+    | Mod_tok::rt -> let rtree, rtoks = arith3 rt in
+        arith2loop rtoks (Mod (acc, rtree))
+    | _ -> acc, toks
+  in
+  let ltree, rtoks = arith3 toks in
+  arith2loop rtoks ltree
+and
+arith3 toks =
+  (* let () = print_string "Arith3: " in
+  let () = print_tokens toks in
+  let () = print_newline () in *)
+  let ltree, rtoks = atom toks in
+  match rtoks with
+    | Exp_tok::rt -> let rtree, rtoks = arith3 rt in
+        Exp (ltree, rtree), rtoks
+    | _ -> ltree, rtoks
+and
+atom toks =
+  (* let () = print_string "Atom: " in
+  let () = print_tokens toks in
+  let () = print_newline () in *)
+  match toks with
+    | (Int_tok x)::rt -> Int x, rt
+    | (Id_tok x)::rt -> Id x, rt
+    | (Bool_tok x)::rt -> Bool x, rt
+    | (Float_tok x)::rt -> Float x, rt
+    | Lparen_tok::rt -> let t, rtoks = bool1 rt in
+        begin match rtoks with
+          | Rparen_tok::rt -> Paren t, rt
+          | _ -> raise UnmatchedParen
+        end
+    | Neg_tok::rt -> let t, rtoks = atom rt in Neg t, rtoks
+    | _ -> raise BadToks
+;;
+    
+let rec main () =
+  let toks = input () in
+  (* let () = print_tokens toks in *)
+  match toks with
+  | (Indent_tok x)::[] -> main ()
+  | (Indent_tok x)::t when x = 0 -> let b, rt = block t in
+    begin match rt with
+      | [] -> let () = executeStatement b in
+        main ()
+      | _ -> let () = print_string "Invalid Input\n" in main ()
+    end
+  | _ -> let () = print_string "Indentation Error\n" in main ()
 ;;
 
 main ();;
