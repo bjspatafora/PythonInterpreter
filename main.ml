@@ -28,6 +28,7 @@ type expr = Equ of (expr * expr)
           | Float of float
           | Id of string
           | If of (expr * (statement list) * (statement list))
+          | While of (expr * (statement list))
           | Empty
 and
   statement = Statement of (string * expr)
@@ -46,6 +47,11 @@ let rec input () =
 let rec print_parsetree tree ind =
   let indent = String.make (ind * 4) ' ' in
   match tree with
+  | While (cond, exp) -> let () = Printf.printf "%sWhile(\n" indent in
+    let () = print_parsetree cond (ind + 1) in
+    let () = Printf.printf "%sdo\n" indent in
+    let () = print_statements exp (ind + 1) in
+    Printf.printf "%s)\n" indent
   | If (cond, exp, el) -> let () = Printf.printf "%sIf(\n" indent in
     let () = print_parsetree cond (ind + 1) in
     let () = Printf.printf "%sthen\n" indent in
@@ -151,6 +157,12 @@ and
 ;;
 
 let rec executeTree t = match t with
+  | While (cond, exp) -> begin match executeTree cond with
+      | Int x when x = 0 -> Empty
+      | Float x when x = 0. -> Empty
+      | Bool false -> Empty
+      | _ -> let () = executeStatements exp in executeTree t
+    end
   | If (cond, exp, el) -> begin match executeTree cond with
       | Int x when x = 0 -> let () = executeStatements el in Empty
       | Float x when x = 0. -> let () = executeStatements el in Empty
@@ -340,7 +352,10 @@ let rec executeTree t = match t with
   | _ -> t
 and
   executeStatement s = match s with
-  | Statement (v, x) -> Hashtbl.replace vartbl v (executeTree x)
+  | Statement (v, x) -> let e = executeTree x in
+    (* let () = Printf.printf "%s = " v in
+       let () = print_parsetree e 0 in *)
+    Hashtbl.replace vartbl v e
   | Expr x -> print_parsetree (executeTree x) 0
 and
   executeStatements xs = match xs with
@@ -348,51 +363,96 @@ and
   | x::xs -> let () = executeStatement x in executeStatements xs
 ;;
 
-let rec block toks : (statement * token list) =
-  let rec ifloop cb eb els : (statement list * statement list * statement) =
+let rec block toks ind : (statement list * token list * int) =
+  let rec ifloop cb eb els ind : (statement list * statement list * statement list * int) =
+    (* let () = Printf.printf "\tin ifloop %d\n" ind in *)
     let toks = input () in
-    match toks with
-    | (Indent_tok x)::[] -> ifloop cb eb els
-    | (Indent_tok x)::rt when x = 4 -> let b, rt = block rt in
-      begin match (rt, els) with
-        | ([], 0) -> ifloop (cb @ [b]) eb els
-        | ([], 1) -> ifloop cb (eb @ [b]) els
-        | (_, _) -> let () = print_string "Invalid Input\n" in
-          ifloop cb eb els
+    try
+      begin match toks with
+        | (Indent_tok x)::[] -> ifloop cb eb els ind
+        | (Indent_tok x)::rt when x = ind -> let b, rt, endind = block rt ind in
+          begin match (rt, endind, els) with
+            | ([], x, 0) when x = ind -> ifloop (cb @ b) eb els ind
+            | ([], x, 1) when x = ind -> ifloop cb (eb @ b) els ind
+            | ([], x, _) when x < ind && x mod 4 = 0 -> cb, eb, b, x
+            | (_, _, _) -> let () = print_string "Invalid Input\n" in
+              (* let () = print_tokens rt in
+                 let () = Printf.printf "%d, %d\n" x els in *)
+              ifloop cb eb els ind
+          end
+        | (Indent_tok x)::Else_tok::Colon_tok::[] when x = ind - 4 -> if els = 1
+          then let () = print_string "Double else\n" in raise BadToks
+          else ifloop cb eb 1 ind
+        | (Indent_tok x)::Else_tok::Colon_tok::rt when x = ind - 4 -> if els = 1
+          then let () = print_string "Double else\n" in raise BadToks
+          else let exp, rt = statement rt in
+            begin match rt with
+              | [] -> cb, [exp], [Expr Empty], (ind - 4)
+              | _ -> let () = print_string "Invalid Input\n" in ifloop cb eb els ind
+            end
+        | (Indent_tok x)::rt when (x < ind && x mod 4 = 0) -> let b, rt, endind = block rt x in
+          begin match rt with
+            | [] -> cb, eb, b, x
+            | _ -> let () = print_string "Invalid Input\n" in ifloop cb eb els ind
+          end
+        | _ -> let () = print_string "Indentation Error\n" in ifloop cb eb els ind
       end
-    | (Indent_tok x)::Else_tok::Colon_tok::[] when x = 0 -> if els = 1
-      then raise BadToks
-      else ifloop cb eb 1
-    | (Indent_tok x)::Else_tok::Colon_tok::rt when x = 0 -> if els = 1
-      then raise BadToks
-      else let exp, rt = statement rt in
-        begin match rt with
-          | [] -> cb, [exp], Expr Empty
-          | _ -> let () = print_string "Invalid Input\n" in ifloop cb eb els
-        end
-    | (Indent_tok x)::rt when x = 0 -> let b, rt = block rt in
-      begin match rt with
-        | [] -> cb, eb, b
-        | _ -> let () = print_string "Invalid Input\n" in ifloop cb eb els
-      end
-    | _ -> raise BadToks
+    with
+    | BadToks -> let () = print_string "Invalid Input\n" in ifloop cb eb els ind
+    | UnmatchedParen -> let () = print_string "Invalid Input: unmatched parentheses\n" in
+      ifloop cb eb els ind
   in
+  let rec whileloop b ind =
+    (* let () = print_string "\tIn while loop\n" in *)
+    let toks = input () in
+    try
+      begin match toks with
+        | (Indent_tok x)::[] -> whileloop b ind
+        | (Indent_tok x)::rt when x = ind -> let ib, rt, endind = block rt ind in
+          begin match (rt, endind) with
+            | ([], x) when x = ind -> whileloop (b @ ib) ind
+            | ([], x) when x < ind && x mod 4 = 0 -> b, ib, x
+            | (_, _) -> let () = print_string "Invalid Input\n" in
+              whileloop b ind
+          end
+        | (Indent_tok x)::rt when (x < ind && x mod 4 = 0) -> let ib, rt, endind = block rt x in
+          begin match rt with
+            | [] -> b, ib, x
+            | _ -> let () = print_string "Invalid Input\n" in whileloop b ind
+          end
+        | _ -> let () = print_string "Indentation Error\n" in whileloop b ind
+      end
+    with
+    | BadToks -> let () = print_string "Invalid Input\n" in whileloop b ind
+    | UnmatchedParen -> let () = print_string "Invalid Input: unmatched parentheses\n" in
+      whileloop b ind
+  in
+  (* let () = Printf.printf "\tin block %d\n" ind in *)
   match toks with
   | If_tok::rt -> let cond, rtoks = bool1 rt in
     begin match rtoks with
-      | Colon_tok::[] -> let iblock, eblock, ne = ifloop [] [] 0 in
-        let () = executeStatement (Expr (If (cond, iblock, eblock))) in
-        ne, []
+      | Colon_tok::[] -> let iblock, eblock, ne, endind = ifloop [] [] 0 (ind + 4) in
+        [Expr (If (cond, iblock, eblock))] @ ne, [], endind
       | Colon_tok::rt -> let exp, rt = statement rt in
         begin match rt with
-          | [] -> let iblock, eblock, ne = ifloop [exp] [] 2 in
-            let () = executeStatement (Expr (If (cond, iblock, eblock))) in
-            ne, rt
+          | [] -> let iblock, eblock, ne, endind = ifloop [exp] [] 2 ind in
+            [Expr (If (cond, iblock, eblock))] @ ne, rt, endind
           | _ -> raise BadToks
         end
       | _ -> raise BadToks
     end
-  | _ -> let s, rt = statement toks in s, rt
+  | While_tok::rt -> let cond, rtoks = bool1 rt in
+    begin match rtoks with
+      | Colon_tok::[] -> let b, ne, endind = whileloop [] (ind + 4) in
+        [Expr (While (cond, b))] @ ne, [], endind
+      | Colon_tok::rt -> let exp, rt = statement rt in
+        begin match rt with
+          | [] -> [Expr (While (cond, [exp]))], rt, (ind - 4)
+          | _ -> raise BadToks
+        end
+      | _ -> raise BadToks
+    end
+  | _ -> let s, rt = statement toks in [s], rt, ind
 and
   statement toks : (statement * token list) = match toks with
   | (Id_tok v)::Equ_tok::rt -> let exp, rt = bool1 rt in
@@ -426,9 +486,9 @@ and
   bool2loop rtoks ltree
 and
   bool3 toks =
-  (* let () = print_string "Bool4: " in
-       let () = print_tokens toks in
-       let () = print_newline () in *)
+  (* let () = print_string "Bool3s: " in
+     let () = print_tokens toks in
+     let () = print_newline () in *)
   match toks with
   | Not_tok::rt -> let t, rtoks = bool3 rt in Not t, rtoks
   | _ -> bool4 toks
@@ -436,8 +496,8 @@ and
   bool4 toks =
   let rec bool4loop toks acc =
     (* let () = print_string "Bool4: " in
-    let () = print_tokens toks in
-    let () = print_newline () in *)
+       let () = print_tokens toks in
+       let () = print_newline () in *)
     match toks with
     | Is_Equ_tok::rt -> let rtree, rtoks = arith1 rt in
       bool4loop rtoks (Equ (acc, rtree))
@@ -521,11 +581,17 @@ let rec main () =
   (* let () = print_tokens toks in *)
   match toks with
   | (Indent_tok x)::[] -> main ()
-  | (Indent_tok x)::t when x = 0 -> let b, rt = block t in
-    begin match rt with
-      | [] -> let () = executeStatement b in
+  | (Indent_tok x)::t when x = 0 -> begin try
+      let b, rt, _ = block t 0 in
+      begin match rt with
+        | [] -> let () = executeStatements b in
+          main ()
+        | _ -> let () = print_string "Invalid Input\n" in main ()
+      end
+      with
+      | BadToks -> let () = print_string "Invalid Input\n" in main ()
+      | UnmatchedParen -> let () = print_string "Invalid Input: unmatched parentheses\n" in
         main ()
-      | _ -> let () = print_string "Invalid Input\n" in main ()
     end
   | _ -> let () = print_string "Indentation Error\n" in main ()
 ;;

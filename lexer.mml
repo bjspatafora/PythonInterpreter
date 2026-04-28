@@ -18,6 +18,7 @@ rule lexer prevtok = parse
      | "else" { Else_tok::(lexer prevtok lexbuf) }
      | "True" { (Bool_tok true)::(lexer Val_tok lexbuf) }
      | "False" { (Bool_tok false)::(lexer Val_tok lexbuf) }
+     | "while" { While_tok::(lexer prevtok lexbuf) }
      | ':' { (Colon_tok)::(lexer Op_tok lexbuf) }
      | "and" { And_tok::(lexer Op_tok lexbuf) }
      | "or" { Or_tok::(lexer Op_tok lexbuf) }
